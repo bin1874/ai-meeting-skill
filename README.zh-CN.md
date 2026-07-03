@@ -1,94 +1,94 @@
 # AI Meeting Skill
 
-English | [中文](README.zh-CN.md)
+[English](README.md) | 中文
 
-`ai-meeting` is a portable `SKILL.md`-based agent skill for structured multi-agent meetings. It helps Codex, Claude Code, and other CLI-capable agents review plans, product ideas, technical designs, implementation proposals, and risky decisions across multiple roles.
+`ai-meeting` 是一个基于 `SKILL.md` 的可移植 Agent Skill，用来组织结构化的多 AI Agent 会议。它适合让 Codex、Claude Code 以及其他 CLI Agent 一起评审产品方案、技术设计、实现计划、商业决策和高风险改动。
 
-The skill runs a local orchestrator that:
+这个 skill 会运行本地 orchestrator：
 
-- creates a meeting ledger under `meetings/<id>/`
-- injects the brief and controlled materials into each agent prompt
-- preserves provider session IDs when available
-- runs independent analysis and cross-questioning rounds
-- writes a final Markdown decision report with provenance
+- 在 `meetings/<id>/` 下创建会议账本
+- 把 brief 和受控材料注入各个 Agent prompt
+- 在 provider 支持时保存并续接 session ID
+- 执行独立分析和交叉质询
+- 输出带 Provenance 的 Markdown 最终决策报告
 
-## Status
+## 当前状态
 
-- Primary providers: Codex and Claude Code.
-- Experimental providers: Qoder, OpenCode, Cursor, Gemini, and Hermes are registered for `doctor` and adapter testing, but blocked from real rounds until auth, permission isolation, and smoke validation pass.
-- Skill folder/name: `ai-meeting`.
-- Display name: `AI Meeting`.
+- 主要 provider：Codex 和 Claude Code。
+- 实验 provider：Qoder、OpenCode、Cursor、Gemini、Hermes 已注册到 `doctor` 和 adapter 测试，但在认证、权限隔离、smoke validation 通过前，不允许参与真实 round。
+- Skill 文件夹/名称：`ai-meeting`。
+- 展示名：`AI Meeting`。
 
-## Install
+## 安装
 
-Clone the repository:
+克隆仓库：
 
 ```bash
 git clone git@github.com:bin1874/ai-meeting-skill.git
 cd ai-meeting-skill
 ```
 
-Install for Codex:
+安装到 Codex：
 
 ```bash
 mkdir -p ~/.codex/skills
 ln -s "$(pwd)/ai-meeting" ~/.codex/skills/ai-meeting
 ```
 
-Install for Claude Code:
+安装到 Claude Code：
 
 ```bash
 mkdir -p ~/.claude/skills
 ln -s "$(pwd)/ai-meeting" ~/.claude/skills/ai-meeting
 ```
 
-If your host does not support symlinked skills, copy the folder instead:
+如果你的 host 不支持 symlink，可以直接复制：
 
 ```bash
 cp -R ai-meeting ~/.codex/skills/ai-meeting
-# or
+# 或者
 cp -R ai-meeting ~/.claude/skills/ai-meeting
 ```
 
-Check available providers:
+检查 provider 可用性：
 
 ```bash
 node ai-meeting/scripts/ai-meeting.mjs doctor --json
 ```
 
-## How To Use The Skill In Chat
+## 在对话里使用 Skill
 
-After installation, ask your host agent to use the skill:
-
-```text
-Use the ai-meeting skill to organize Codex and Claude to review this feature plan. Run two rounds and produce a final decision report.
-```
-
-You can also ask for a specific agent set:
+安装后，可以直接要求 host agent 使用这个 skill：
 
 ```text
-Use ai-meeting with builder:codex, critic:claude, architect:codex. Evaluate whether we should ship this design.
+使用 ai-meeting skill，组织 Codex 和 Claude 评审这个功能方案。跑两轮讨论，然后输出最终决策报告。
 ```
 
-## Copyable CLI Examples
+也可以指定 Agent 组合：
 
-### Example 1: Quick Product Decision Review
+```text
+使用 ai-meeting，参会 Agent 是 builder:codex, critic:claude, architect:codex。评估这个设计是否应该上线。
+```
+
+## 可直接复制的 CLI 示例
+
+### 示例 1：快速产品决策评审
 
 ```bash
 cat > /tmp/ai-meeting-brief.md <<'EOF'
-# Decision
-Should we add team workspaces to the app in the next release?
+# 决策问题
+下一版是否要加入 team workspaces？
 
-# Context
-- Users currently share one personal workspace.
-- Enterprise prospects ask for shared projects and role-based access.
-- The team has two weeks before feature freeze.
+# 背景
+- 当前用户只有个人 workspace。
+- 企业客户希望有共享项目和基于角色的权限。
+- 距离 feature freeze 还有两周。
 
-# Evaluation Criteria
-- Real user value
-- Implementation cost
-- Security and permission risk
-- Whether a smaller MVP exists
+# 评审标准
+- 真实用户价值
+- 实现成本
+- 安全与权限风险
+- 是否存在更小的 MVP
 EOF
 
 MEETING_DIR=$(node ai-meeting/scripts/ai-meeting.mjs create \
@@ -103,25 +103,25 @@ node ai-meeting/scripts/ai-meeting.mjs round --meeting-dir "$MEETING_DIR" --roun
 node ai-meeting/scripts/ai-meeting.mjs synthesize --meeting-dir "$MEETING_DIR"
 ```
 
-Open the final report:
+查看最终报告：
 
 ```bash
 sed -n '1,220p' "$MEETING_DIR/synthesis/final.md"
 ```
 
-### Example 2: Review A Development Document With Materials
+### 示例 2：评审开发文档和补充材料
 
 ```bash
 cat > /tmp/ai-meeting-brief.md <<'EOF'
-# Decision
-Review the proposed API redesign and decide whether it is ready for implementation.
+# 决策问题
+评审 API redesign 是否已经可以进入实现阶段。
 
-# What To Focus On
-- Developer experience
-- Backward compatibility
-- Migration risk
-- Test coverage
-- Simpler alternatives
+# 重点关注
+- 开发者体验
+- 向后兼容
+- 迁移风险
+- 测试覆盖
+- 是否有更简单的替代方案
 EOF
 
 mkdir -p /tmp/ai-meeting-materials
@@ -155,20 +155,20 @@ node ai-meeting/scripts/ai-meeting.mjs round --meeting-dir "$MEETING_DIR" --roun
 node ai-meeting/scripts/ai-meeting.mjs synthesize --meeting-dir "$MEETING_DIR"
 ```
 
-Materials are copied into the meeting directory and injected into prompts as untrusted data blocks. Large materials are marked with `truncatedForPrompt=true`; the final report must treat that as an evidence gap.
+`--material` 会把材料复制进会议目录，并作为非可信 data block 注入 prompt。大文件会标记为 `truncatedForPrompt=true`，最终报告必须把这种截断列入证据缺口。
 
-### Example 3: Preview Prompts Before Spending Tokens
+### 示例 3：先预览 Prompt，避免浪费 Token
 
 ```bash
 cat > /tmp/ai-meeting-brief.md <<'EOF'
-# Decision
-Should we refactor the background job system now or defer it?
+# 决策问题
+现在是否应该重构 background job system，还是推迟？
 
-# Criteria
-- Reliability improvement
-- Risk of regressions
-- Amount of code churn
-- Operational impact
+# 评审标准
+- 稳定性收益
+- 回归风险
+- 代码改动量
+- 运维影响
 EOF
 
 MEETING_DIR=$(node ai-meeting/scripts/ai-meeting.mjs create \
@@ -187,21 +187,21 @@ node ai-meeting/scripts/ai-meeting.mjs round \
 sed -n '1,220p' "$MEETING_DIR/dry-run/round-1/builder.codex.prompt.md"
 ```
 
-`--dry-run` writes preview prompts under `dry-run/` and does not mutate official round state.
+`--dry-run` 只会把预览 prompt 写到 `dry-run/`，不会修改正式 round state。
 
-### Example 4: Continue A Meeting With A Third Round
+### 示例 4：追加第三轮讨论
 
 ```bash
 node ai-meeting/scripts/ai-meeting.mjs round --meeting-dir "$MEETING_DIR" --round 1
 node ai-meeting/scripts/ai-meeting.mjs round --meeting-dir "$MEETING_DIR" --round 2
 
-# Add one more cross-questioning round if the first two rounds expose unresolved disagreement.
+# 如果前两轮暴露出关键分歧，可以追加一轮交叉质询。
 node ai-meeting/scripts/ai-meeting.mjs round --meeting-dir "$MEETING_DIR" --round 3 --max-rounds 5
 
 node ai-meeting/scripts/ai-meeting.mjs synthesize --meeting-dir "$MEETING_DIR"
 ```
 
-### Example 5: Use Claude As The Final Judge
+### 示例 5：使用 Claude 作为最终 Judge
 
 ```bash
 node ai-meeting/scripts/ai-meeting.mjs synthesize \
@@ -209,7 +209,7 @@ node ai-meeting/scripts/ai-meeting.mjs synthesize \
   --provider claude
 ```
 
-## Output Layout
+## 输出目录
 
 ```txt
 meetings/<id>/
@@ -224,21 +224,21 @@ meetings/<id>/
     final.md
 ```
 
-If synthesis returns an invalid report, the orchestrator writes `synthesis/final.draft.md`, records missing sections in `state.json`, and does not write official `final.md`.
+如果 synthesis 返回的报告缺少必需章节，orchestrator 会写 `synthesis/final.draft.md`，在 `state.json` 记录缺失章节，并且不写正式 `final.md`。
 
-## Safety Model
+## 安全模型
 
-- Child agents cannot recursively run `ai-meeting`.
-- Codex defaults to read-only sandbox configuration.
-- Claude Code defaults to `--safe-mode` and no tools.
-- Child agent cwd is an agent-scoped isolated workspace under the meeting directory, not the project root.
-- Briefs, materials, peer outputs, and model outputs are treated as untrusted data.
-- `state.json` is written atomically.
-- Official artifacts are written with owner-only `0600` file permissions.
-- Session IDs are redacted in stdout and omitted from final report provenance.
-- Experimental providers stay gated until smoke tests prove prompt transport, auth, session resume, and tool/config isolation.
+- 子 Agent 不能递归运行 `ai-meeting`。
+- Codex 默认使用 read-only sandbox 配置。
+- Claude Code 默认使用 `--safe-mode` 且不启用工具。
+- 子 Agent cwd 是会议目录下的独立 workspace，不是项目根目录。
+- brief、materials、其他 Agent 输出和模型输出都视为非可信数据。
+- `state.json` 原子写入。
+- 正式 artifacts 使用 owner-only `0600` 权限写入。
+- session ID 在 stdout 中脱敏，并且不会进入最终报告 Provenance。
+- 实验 provider 必须在 prompt transport、auth、session resume、工具/配置隔离通过 smoke test 后才可启用。
 
-## Test
+## 测试
 
 ```bash
 node --check ai-meeting/scripts/ai-meeting.mjs
