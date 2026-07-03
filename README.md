@@ -30,6 +30,19 @@ Install the ai-meeting skill from this GitHub repository:
 https://github.com/bin1874/ai-meeting-skill
 ```
 
+### Option B: Install In Claude Code As A Plugin
+
+In Claude Code, run:
+
+```text
+/plugin marketplace add bin1874/ai-meeting-skill
+/plugin install ai-meeting@ai-meeting-skill
+```
+
+The marketplace points to the repository's `ai-meeting/` skill folder.
+
+### Option C: Ask Claude Code To Install It
+
 Copy this into Claude Code:
 
 ```text
@@ -43,7 +56,7 @@ If your agent supports installing skills directly from a GitHub URL, the only in
 https://github.com/bin1874/ai-meeting-skill
 ```
 
-### Option B: Manual Install
+### Option D: Manual Install
 
 Clone the repository:
 

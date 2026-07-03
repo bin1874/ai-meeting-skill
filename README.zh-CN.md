@@ -30,6 +30,19 @@
 https://github.com/bin1874/ai-meeting-skill
 ```
 
+### 方式 B：在 Claude Code 里作为 Plugin 安装
+
+在 Claude Code 里执行：
+
+```text
+/plugin marketplace add bin1874/ai-meeting-skill
+/plugin install ai-meeting@ai-meeting-skill
+```
+
+这个 marketplace 会指向仓库里的 `ai-meeting/` skill 文件夹。
+
+### 方式 C：让 Claude Code 根据仓库地址安装
+
 复制下面这段给 Claude Code：
 
 ```text
@@ -43,7 +56,7 @@ https://github.com/bin1874/ai-meeting-skill
 https://github.com/bin1874/ai-meeting-skill
 ```
 
-### 方式 B：手动安装
+### 方式 D：手动安装
 
 克隆仓库：
 

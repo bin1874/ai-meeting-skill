@@ -1,0 +1,22 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "ai-meeting-skill",
+  "description": "Claude Code marketplace for the ai-meeting skill.",
+  "owner": {
+    "name": "bin1874",
+    "email": "constantine.ff@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "ai-meeting",
+      "description": "Run structured multi-agent decision reviews with Codex, Claude Code, and adapter-based CLI agents.",
+      "author": {
+        "name": "bin1874",
+        "email": "constantine.ff@gmail.com"
+      },
+      "source": "./ai-meeting",
+      "category": "development",
+      "homepage": "https://github.com/bin1874/ai-meeting-skill"
+    }
+  ]
+}
