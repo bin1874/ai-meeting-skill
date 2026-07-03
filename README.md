@@ -96,6 +96,8 @@ Use ai-meeting with builder:codex, critic:claude, architect:codex. Evaluate whet
 
 ## Copyable CLI Examples
 
+See [docs/example-final-report.md](docs/example-final-report.md) for a shortened final report example.
+
 ### Example 1: Quick Product Decision Review
 
 ```bash

@@ -96,6 +96,8 @@ node ai-meeting/scripts/ai-meeting.mjs doctor --json
 
 ## 可直接复制的 CLI 示例
 
+可以先看一个简化版最终报告示例：[docs/example-final-report.md](docs/example-final-report.md)。
+
 ### 示例 1：快速产品决策评审
 
 ```bash
