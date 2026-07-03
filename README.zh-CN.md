@@ -28,9 +28,6 @@
 ```text
 请从这个 GitHub 仓库安装 ai-meeting skill：
 https://github.com/bin1874/ai-meeting-skill
-
-使用仓库里的 ai-meeting/ 文件夹作为 skill 文件夹。把它安装到 ~/.codex/skills/ai-meeting，然后运行：
-node ai-meeting/scripts/ai-meeting.mjs doctor --json
 ```
 
 复制下面这段给 Claude Code：
@@ -38,9 +35,6 @@ node ai-meeting/scripts/ai-meeting.mjs doctor --json
 ```text
 请从这个 GitHub 仓库安装 ai-meeting skill：
 https://github.com/bin1874/ai-meeting-skill
-
-使用仓库里的 ai-meeting/ 文件夹作为 skill 文件夹。把它安装到 ~/.claude/skills/ai-meeting，然后运行：
-node ai-meeting/scripts/ai-meeting.mjs doctor --json
 ```
 
 如果你的 Agent 支持直接通过 GitHub URL 安装 skill，只需要给它这个地址：

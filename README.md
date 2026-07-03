@@ -28,9 +28,6 @@ Copy this into Codex:
 ```text
 Install the ai-meeting skill from this GitHub repository:
 https://github.com/bin1874/ai-meeting-skill
-
-Use the repository's ai-meeting/ folder as the skill folder. Install it into ~/.codex/skills/ai-meeting, then run:
-node ai-meeting/scripts/ai-meeting.mjs doctor --json
 ```
 
 Copy this into Claude Code:
@@ -38,9 +35,6 @@ Copy this into Claude Code:
 ```text
 Install the ai-meeting skill from this GitHub repository:
 https://github.com/bin1874/ai-meeting-skill
-
-Use the repository's ai-meeting/ folder as the skill folder. Install it into ~/.claude/skills/ai-meeting, then run:
-node ai-meeting/scripts/ai-meeting.mjs doctor --json
 ```
 
 If your agent supports installing skills directly from a GitHub URL, the only input it needs is:
