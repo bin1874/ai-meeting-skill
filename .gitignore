@@ -1,0 +1,25 @@
+node_modules/
+
+# Local meeting ledgers can contain session ids, prompts, and model outputs.
+meetings/
+dry-run/
+
+# OS/editor metadata.
+.DS_Store
+Thumbs.db
+*.swp
+*~
+*:Zone.Identifier
+
+# Local environment and credentials.
+.env
+.env.*
+*.pem
+*.key
+
+# Test/cache output.
+coverage/
+.nyc_output/
+.cache/
+tmp/
+*.log
