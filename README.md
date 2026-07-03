@@ -15,7 +15,7 @@ The skill runs a local orchestrator that:
 ## Status
 
 - Primary providers: Codex and Claude Code.
-- Experimental providers: Qoder, OpenCode, Cursor, Gemini, and Hermes are registered for `doctor` and adapter testing, but blocked from real rounds until auth, permission isolation, and smoke validation pass.
+- Experimental providers: Qoder, OpenCode, Cursor, Gemini, and Hermes are included as opt-in adapters. The project does not block other agent tools by brand; any CLI agent can participate once its provider adapter reports usable auth, prompt transport, session handling, and permission boundaries through `doctor`.
 - Skill folder/name: `ai-meeting`.
 - Display name: `AI Meeting`.
 
@@ -260,7 +260,7 @@ If synthesis returns an invalid report, the orchestrator writes `synthesis/final
 - `state.json` is written atomically.
 - Official artifacts are written with owner-only `0600` file permissions.
 - Session IDs are redacted in stdout and omitted from final report provenance.
-- Experimental providers stay gated until smoke tests prove prompt transport, auth, session resume, and tool/config isolation.
+- Provider availability is decided by each adapter's `doctor` checks. New agent tools are welcome through provider adapters, but adapters must report auth, prompt transport, session handling, and permission boundaries honestly.
 
 ## Test
 

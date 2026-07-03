@@ -15,7 +15,7 @@
 ## 当前状态
 
 - 主要 provider：Codex 和 Claude Code。
-- 实验 provider：Qoder、OpenCode、Cursor、Gemini、Hermes 已注册到 `doctor` 和 adapter 测试，但在认证、权限隔离、smoke validation 通过前，不允许参与真实 round。
+- 实验 provider：Qoder、OpenCode、Cursor、Gemini、Hermes 已作为可选 adapter 接入。项目不按品牌预设封禁其它 Agent 工具；任何 CLI Agent 只要 provider adapter 能通过 `doctor` 如实报告认证、prompt 传输、会话处理和权限边界，就可以参与会议。
 - Skill 文件夹/名称：`ai-meeting`。
 - 展示名：`AI Meeting`。
 
@@ -260,7 +260,7 @@ meetings/<id>/
 - `state.json` 原子写入。
 - 正式 artifacts 使用 owner-only `0600` 权限写入。
 - session ID 在 stdout 中脱敏，并且不会进入最终报告 Provenance。
-- 实验 provider 必须在 prompt transport、auth、session resume、工具/配置隔离通过 smoke test 后才可启用。
+- Provider 是否可用由各自 adapter 的 `doctor` 检查决定。欢迎通过 provider adapter 接入新的 Agent 工具，但 adapter 必须如实报告认证、prompt 传输、会话处理和权限边界。
 
 ## 测试
 
