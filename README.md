@@ -15,6 +15,7 @@ The skill runs a local orchestrator that:
 ## Status
 
 - Primary providers: Codex and Claude Code.
+- Supported opt-in provider: qoderclicn (Qoder CLI CN).
 - Experimental providers: Qoder, OpenCode, Cursor, Gemini, and Hermes are included as opt-in adapters. The project does not block other agent tools by brand; any CLI agent can participate once its provider adapter reports usable auth, prompt transport, session handling, and permission boundaries through `doctor`.
 - Skill folder/name: `ai-meeting`.
 - Display name: `AI Meeting`.
@@ -105,6 +106,12 @@ You can also ask for a specific agent set:
 
 ```text
 Use ai-meeting with builder:codex, critic:claude, architect:codex. Evaluate whether we should ship this design.
+```
+
+qoderclicn can also participate explicitly:
+
+```text
+Use ai-meeting with builder:codex, critic:claude, architect:qoderclicn. Evaluate whether we should ship this design.
 ```
 
 ## Copyable CLI Examples
@@ -255,7 +262,6 @@ meetings/<id>/
   brief.md
   materials/
   state.json
-  workspaces/
   rounds/
   synthesis/
     round-1-summary.md
@@ -270,7 +276,9 @@ If synthesis returns an invalid report, the orchestrator writes `synthesis/final
 - Child agents cannot recursively run `ai-meeting`.
 - Codex defaults to read-only sandbox configuration.
 - Claude Code defaults to `--safe-mode` and no tools.
-- Child agent cwd is an agent-scoped isolated workspace under the meeting directory, not the project root.
+- qoderclicn runs with no tools, an empty MCP config, and user settings only.
+- Child agent cwd is an agent-scoped isolated external cache workspace derived from the meeting path, not the project root or meeting directory.
+- Creating a meeting resets the external child workspace cache for that meeting path to avoid stale provider cwd state.
 - Briefs, materials, peer outputs, and model outputs are treated as untrusted data.
 - `state.json` is written atomically.
 - Official artifacts are written with owner-only `0600` file permissions.
@@ -282,7 +290,7 @@ If synthesis returns an invalid report, the orchestrator writes `synthesis/final
 ```bash
 node --check ai-meeting/scripts/ai-meeting.mjs
 node --test tests/ai-meeting.test.mjs
-python3 /home/ben/.codex/skills/.system/skill-creator/scripts/quick_validate.py ai-meeting
+python3 "${CODEX_HOME:-$HOME/.codex}/skills/.system/skill-creator/scripts/quick_validate.py" ai-meeting
 node ai-meeting/scripts/ai-meeting.mjs doctor --json
 ```
 

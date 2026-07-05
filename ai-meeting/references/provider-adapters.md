@@ -1,6 +1,6 @@
 # Provider Adapter 设计
 
-第一版主路径实现 Codex 和 Claude Code。Qoder、OpenCode、Cursor、Gemini 和 Hermes 已作为实验 provider 注册，但保持 `registryDefault=false` 和 `smokeVerified=false`，未通过 smoke gate 前不作为默认候选，也不进入正式 round/synthesis。Provider 已拆到 `ai-meeting/scripts/providers/`，由 `registry.mjs` 注册。后续 provider 只新增 adapter，不修改会议流程。
+第一版主路径实现 Codex、Claude Code 和 qoderclicn。Qoder、OpenCode、Cursor、Gemini 和 Hermes 已作为实验 provider 注册，但保持 `registryDefault=false` 和 `smokeVerified=false`，未通过 smoke gate 前不作为默认候选，也不进入正式 round/synthesis。Provider 已拆到 `ai-meeting/scripts/providers/`，由 `registry.mjs` 注册。后续 provider 只新增 adapter，不修改会议流程。
 
 ## 统一接口
 
@@ -40,6 +40,7 @@ Provider 的 `status` 表示 CLI 调用结果。orchestrator 还会二次校验 
 
 - Codex：`sessionId = thread_id`
 - Claude Code：`sessionId = session_id`
+- qoderclicn：orchestrator 生成 UUID；只接受 provider-control 顶层返回的同一 `session_id` / `sessionId`
 - Qoder：orchestrator 生成 UUID；只接受 provider-control 顶层返回的同一 `session_id` / `sessionId`
 - OpenCode：`sessionId = sessionID`
 - Cursor：`sessionId = chatId`，兼容 `chat_id` / `session_id` / `sessionId`
@@ -66,7 +67,7 @@ codex exec resume --json -c 'sandbox_mode="read-only"' -o <tmp-output-file> <thr
 
 不要使用 `codex exec resume --last` 作为主路径。
 非 Git 工作区追加 `--skip-git-repo-check`。`tmp-output-file` 用于获取最后答案，避免把 JSONL 事件当最终报告。
-`isolated-empty-dir` 是 orchestrator 为每个 Agent 创建并跨轮复用的隔离 workspace，例如 `workspaces/builder.codex/`。它不是项目根、会议根或用户 home。项目材料必须由 orchestrator 作为 data block 注入 prompt。
+`isolated-empty-dir` 是 orchestrator 为每个 Agent 创建并跨轮复用的隔离 workspace。当前实现把它放在外部 cache 中，由 meetingDir hash、角色和 provider 派生；它不是项目根、会议根或会议目录子目录。创建会议时会清理该 meetingDir 对应的外部 workspace cache，避免 stale cwd 状态污染新会议。项目材料必须由 orchestrator 作为 data block 注入 prompt。
 
 ## Claude Code
 
@@ -88,6 +89,40 @@ cat <prompt-file> | claude -p --safe-mode --output-format stream-json --verbose 
 
 v1 默认不授予工具。`dontAsk` 只在工具列表为空时使用，避免在非可信 prompt 下自动批准文件、网络或 shell 操作。
 Claude 同样在 Agent 专属固定隔离 workspace 中运行，并使用 `--safe-mode` 避免读取项目级自定义上下文。Claude Code 当前版本的 `--resume <session_id>` 对 cwd/project scope 敏感；orchestrator 必须为同一 Claude Agent 跨轮复用同一 cwd，否则会出现 `No conversation found with session ID`。
+
+## qoderclicn
+
+qoderclicn 当前已注册为显式 provider，`registryDefault=false`，当前安装环境已通过 qoderclicn 1.0.37 的两轮 resume smoke。它不作为默认 agent 候选，但用户可以显式选择 `--agents role:qoderclicn` 或 `synthesize --provider qoderclicn`。
+
+新建：
+
+```bash
+printf '%s' "$PROMPT" | qoderclicn -p --output-format stream-json --cwd <isolated-empty-dir> --permission-mode default --tools "" --mcp-config '{"mcpServers":{}}' --strict-mcp-config --setting-sources user --session-id <uuid>
+```
+
+续会：
+
+```bash
+printf '%s' "$PROMPT" | qoderclicn -p --output-format stream-json --cwd <isolated-empty-dir> --permission-mode default --tools "" --mcp-config '{"mcpServers":{}}' --strict-mcp-config --setting-sources user --resume <session_id>
+```
+
+解析规则：
+
+- 只从 stream-json 顶层 event 读取 `session_id` / `sessionId`，且必须匹配本次传入的 orchestrator UUID 或 resume id。
+- `result.result` 是优先最终文本；没有 result 时拼接 assistant text block。
+- assistant/result 文本里伪造的 `session_id` 不得进入 state。
+- `is_error: true` 或顶层 `error` 必须记为 provider `failed`，即使进程退出码为 0。
+- provider 退出成功但最终文本为空时必须记为 `failed`。
+
+安全规则：
+
+- prompt 通过 stdin 传入，不把完整 prompt 放入 argv。
+- 必须传 `--permission-mode default`。
+- 必须传空工具列表：`--tools ""`。
+- 必须传空 MCP 配置和严格 MCP 配置：`--mcp-config '{"mcpServers":{}}' --strict-mcp-config`。
+- 必须传 `--setting-sources user`，避免 project/local 设置影响子 Agent。
+- 不传 `--dangerously-skip-permissions` 或任何自动批准权限的参数。
+- 当前不声明网络隔离已验证，`doctor` 和 final provenance 必须标为 `network=unverified`。
 
 ## Qoder（实验）
 

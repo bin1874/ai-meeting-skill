@@ -1,6 +1,6 @@
 ---
 name: ai-meeting
-description: Run structured AI meetings for plans, product ideas, technical designs, business decisions, feature proposals, and strategy choices. Use when the user wants an AI meeting, AI roundtable, multi-agent discussion, debate, proposal review, plan review, decision review, or wants Codex, Claude Code, and other CLI agents to analyze a proposal across multiple expert roles, challenge assumptions, preserve per-agent sessions, and produce a final decision report with provenance. 也适用于中文场景：方案评审、多 Agent 讨论、技术路线评审、商业决策评审。
+description: Run structured AI meetings for plans, product ideas, technical designs, business decisions, feature proposals, and strategy choices. Use when the user wants an AI meeting, AI roundtable, multi-agent discussion, debate, proposal review, plan review, decision review, or wants Codex, Claude Code, qoderclicn, and other CLI agents to analyze a proposal across multiple expert roles, challenge assumptions, preserve per-agent sessions, and produce a final decision report with provenance. 也适用于中文场景：方案评审、多 Agent 讨论、技术路线评审、商业决策评审。
 ---
 
 # AI Meeting
@@ -9,7 +9,7 @@ description: Run structured AI meetings for plans, product ideas, technical desi
 
 把一个方案交给多个 AI Agent 进行结构化会议评审：每个 Agent 从项目核心目标和用户价值出发独立判断，经过多轮质询与修正，最后输出可执行的 Markdown 决策报告。
 
-第一版优先支持 Codex 和 Claude Code。Qoder、OpenCode、Cursor、Gemini 和 Hermes 已作为可选 provider adapter 注册。项目不按品牌预设封禁其他 CLI Agent 工具；任何 CLI Agent 只要 provider adapter 能通过 `doctor` 如实报告认证、prompt 传输、会话处理和权限边界，就可以参与会议。
+第一版优先支持 Codex、Claude Code 和 qoderclicn（Qoder CLI CN）。Qoder、OpenCode、Cursor、Gemini 和 Hermes 已作为可选 provider adapter 注册。项目不按品牌预设封禁其他 CLI Agent 工具；任何 CLI Agent 只要 provider adapter 能通过 `doctor` 如实报告认证、prompt 传输、会话处理和权限边界，就可以参与会议。
 
 ## 必须遵守
 
@@ -54,10 +54,11 @@ meetings/<timestamp-slug>/
   brief.md
   materials/
   state.json
-  workspaces/
   rounds/
   synthesis/
 ```
+
+子 Agent 的固定隔离 workspace 不放在项目根或会议目录内；脚本会在外部 cache 目录中按 meetingDir hash 派生稳定 cwd，以支持 qoderclicn、Claude Code 等对 cwd/project scope 敏感的续会。创建会议时会重置该 meetingDir 对应的外部 workspace cache，避免复用旧 provider cwd 状态。
 
 会议目录中的材料可能包含 session id、内部方案和模型输出，默认写入 `.gitignore`，不要提交。
 
@@ -79,6 +80,14 @@ meetings/<timestamp-slug>/
 builder:codex
 critic:claude
 architect:codex
+```
+
+也可以显式使用 qoderclicn：
+
+```txt
+builder:codex
+critic:claude
+architect:qoderclicn
 ```
 
 `--agents` 中每一项必须严格是 `role:provider`，不接受额外冒号或位置参数。v1 不支持同一 role 绑定多个 provider。
@@ -104,7 +113,7 @@ node ai-meeting/scripts/ai-meeting.mjs round --meeting-dir meetings/<id> --round
 
 ### 5. 第二轮：交叉质询
 
-每个 Agent 续接自己的 session/thread，只接收本轮任务、受控 materials、其他 Agent 摘要和争议点。子 Agent 的 CLI 默认运行在该 Agent 专属的固定隔离 workspace 中，例如 `workspaces/critic.claude/`，不能使用项目根或会议根作为 cwd。要求回答：
+每个 Agent 续接自己的 session/thread，只接收本轮任务、受控 materials、其他 Agent 摘要和争议点。子 Agent 的 CLI 默认运行在外部 cache 中该 Agent 专属的固定隔离 workspace 中，不能使用项目根或会议根作为 cwd。要求回答：
 
 - 哪个观点最偏离项目核心目标？为什么？
 - 哪个观点高估了用户价值或低估了执行成本？
@@ -160,6 +169,16 @@ Claude Code provider：
 - 从 stream-json 事件中提取 `session_id`。
 - v1 默认不授予 Claude Code Read/Grep/Glob/Bash/WebSearch/WebFetch/Write/Edit 等工具；它只基于 prompt 中注入的受控材料做分析。
 - Claude 的 cwd 使用 agent 专属固定隔离 workspace；`--safe-mode` 禁用项目级自定义上下文。Claude Code 当前版本的 `--resume <session_id>` 对 cwd/project scope 敏感，因此同一 Agent 必须跨轮复用同一隔离 cwd。
+
+qoderclicn provider：
+
+- 新会话使用 `qoderclicn -p --output-format stream-json --cwd <isolated-empty-dir> --permission-mode default --tools "" --mcp-config '{"mcpServers":{}}' --strict-mcp-config --setting-sources user --session-id <uuid>`。
+- 续会使用 `qoderclicn -p --output-format stream-json --cwd <isolated-empty-dir> --permission-mode default --tools "" --mcp-config '{"mcpServers":{}}' --strict-mcp-config --setting-sources user --resume <session_id>`。
+- prompt 通过 stdin 传入，不把完整 prompt 放在 argv 主路径。
+- 从 stream-json 顶层事件提取 `session_id` / `sessionId`；忽略 assistant/result 文本中的伪造 session id。
+- 只把 `type: "result"` 的 `result` 或 assistant text content 作为输出；`is_error: true` 或顶层 `error` 必须记为 `failed`，即使进程退出码为 0。
+- qoderclicn 默认不授予 tools，并使用空 MCP config；网络隔离当前只能在 provenance 中标为 `unverified`。
+- 当前保持 `registryDefault=false`，但当前安装环境已通过 qoderclicn 1.0.37 的两轮 resume smoke。
 
 Qoder provider（实验）：
 
@@ -220,11 +239,11 @@ Provider 细节见 [references/provider-adapters.md](references/provider-adapter
 - provider 退出成功但输出为空：记为 `failed`，不得进入最终裁决。
 - 会话 ID 缺失但输出完成：保存原始输出，将该 Agent 标记为 `sessionMode: "stateless"`，下一轮依赖自足 prompt 继续。
 - 续会失败：用该 Agent 的自足 prompt 在同一固定隔离 workspace 中新建 session 恢复一次；成功则标记 `sessionMode: "recovered"`，失败则记录为 `failed` 并进入最终 provenance。
-- 最新一轮仍有缺失或失败 Agent 时，不生成最终裁决，除非用户明确接受带缺口的报告。
+- 最新一轮仍有缺失或失败 Agent 时，脚本不生成最终裁决；宿主 Agent 如需手工总结，必须明确标注缺口。
 - 某个 Agent 输出明显附和或空泛：追加一轮质询，要求其重新从项目目标和用户价值出发。
 
 ## 何时读取参考文件
 
 - 写最终报告时读取 [references/output-template.md](references/output-template.md)。
 - 修改角色或轮次 prompt 时读取 [references/prompt-templates.md](references/prompt-templates.md)。
-- 扩展 Hermes、Gemini、Cursor、OpenCode、Qoder 等 provider 时读取 [references/provider-adapters.md](references/provider-adapters.md) 和 [references/state-schema.md](references/state-schema.md)。
+- 扩展 qoderclicn、Hermes、Gemini、Cursor、OpenCode、Qoder 等 provider 时读取 [references/provider-adapters.md](references/provider-adapters.md) 和 [references/state-schema.md](references/state-schema.md)。

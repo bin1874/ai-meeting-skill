@@ -2,6 +2,7 @@
 
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { createChildWorkspace, createTempOutputFile } from "./providers/shared.mjs";
 import { providers } from "./providers/registry.mjs";
@@ -158,9 +159,9 @@ const ROLE_CARDS = {
 function usage() {
   return `Usage:
   ai-meeting doctor [--json] [--strict]
-  ai-meeting create --topic <topic> [--brief-file <path>] [--material <path>...] [--meeting-dir <dir>] [--agents builder:codex,critic:claude] [--max-agents 6] [--max-materials 20] [--force]
+  ai-meeting create --topic <topic> [--brief-file <path>] [--material <path>...] [--meeting-dir <dir>] [--agents builder:codex,critic:claude,architect:qoderclicn] [--max-agents 6] [--max-materials 20] [--force]
   ai-meeting round --meeting-dir <dir> --round <n> [--dry-run] [--force] [--max-rounds 5] [--timeout-ms 1800000]
-  ai-meeting synthesize --meeting-dir <dir> [--provider codex|claude|qoder|opencode|cursor|gemini|hermes] [--dry-run] [--timeout-ms 1800000]
+  ai-meeting synthesize --meeting-dir <dir> [--provider codex|claude|qoderclicn|qoder|opencode|cursor|gemini|hermes] [--dry-run] [--timeout-ms 1800000]
 
 Examples:
   node ai-meeting/scripts/ai-meeting.mjs doctor
@@ -379,12 +380,68 @@ function validateProviderName(provider) {
   }
 }
 
-function agentWorkspaceRel(agentKey, providerName) {
-  return path.join("workspaces", `${safePathSegment(agentKey)}.${safePathSegment(providerName)}`);
-}
-
 function safePathSegment(value) {
   return String(value ?? "agent").replace(/[^A-Za-z0-9_.-]/g, "-");
+}
+
+function resolveForContainment(candidate) {
+  const resolved = path.resolve(candidate);
+  let existing = resolved;
+  const missing = [];
+  while (!fs.existsSync(existing)) {
+    const parent = path.dirname(existing);
+    if (parent === existing) return resolved;
+    missing.unshift(path.basename(existing));
+    existing = parent;
+  }
+  const real = fs.realpathSync.native(existing);
+  return path.resolve(real, ...missing);
+}
+
+function isPathInside(baseDir, candidate) {
+  if (!baseDir) return false;
+  const base = resolveForContainment(baseDir);
+  const target = resolveForContainment(candidate);
+  const relative = path.relative(base, target);
+  return relative === "" || (relative && !relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function workspaceCacheRoot(meetingDir, workspaceRoot) {
+  const candidates = [
+    path.join(os.homedir(), ".cache", "ai-meeting", "workspaces"),
+    path.join(os.tmpdir(), "ai-meeting-workspaces")
+  ];
+  for (const candidate of candidates) {
+    if (!isPathInside(meetingDir, candidate) && !isPathInside(workspaceRoot, candidate)) {
+      return candidate;
+    }
+  }
+  throw new Error("Unable to choose an isolated child workspace outside the meeting directory and workspace root.");
+}
+
+function meetingWorkspaceId(meetingDir) {
+  return crypto.createHash("sha256").update(path.resolve(meetingDir)).digest("hex").slice(0, 24);
+}
+
+function meetingWorkspaceDir(meetingDir, workspaceRoot) {
+  const abs = path.join(workspaceCacheRoot(meetingDir, workspaceRoot), meetingWorkspaceId(meetingDir));
+  if (isPathInside(meetingDir, abs) || isPathInside(workspaceRoot, abs)) {
+    throw new Error("Child workspace cache must not be inside the meeting directory or workspace root.");
+  }
+  return abs;
+}
+
+function childWorkspace(meetingDir, workspaceRoot, agentKey, providerName) {
+  const abs = path.join(meetingWorkspaceDir(meetingDir, workspaceRoot), `${safePathSegment(agentKey)}.${safePathSegment(providerName)}`);
+  if (isPathInside(meetingDir, abs) || isPathInside(workspaceRoot, abs)) {
+    throw new Error("Child workspace must not be inside the meeting directory or workspace root.");
+  }
+  ensureDir(abs);
+  return abs;
+}
+
+function resetMeetingWorkspaces(meetingDir, workspaceRoot) {
+  fs.rmSync(meetingWorkspaceDir(meetingDir, workspaceRoot), { recursive: true, force: true });
 }
 
 function materialFileName(index, source) {
@@ -438,15 +495,8 @@ function materialBudgetWarnings(materials) {
 
 function ensureAgentWorkspace(state, meetingDir, agentKey) {
   const agent = state.agents[agentKey];
-  const workspacePath = agent.workspacePath || agentWorkspaceRel(agentKey, agent.provider);
-  const abs = safeJoin(meetingDir, workspacePath);
-  const meetingRoot = path.resolve(meetingDir);
-  if (abs === meetingRoot) {
-    throw new Error(`Unsafe agent workspace for ${agentKey}: meeting root is not allowed.`);
-  }
-  ensureDir(abs);
-  agent.workspacePath = workspacePath;
-  return abs;
+  delete agent.workspacePath;
+  return childWorkspace(meetingDir, state.workspaceRoot, agentKey, agent.provider);
 }
 
 async function checkProvider(provider) {
@@ -576,7 +626,6 @@ function createMeeting(options) {
   ensureDir(meetingDir);
   ensureDir(path.join(meetingDir, "rounds"));
   ensureDir(path.join(meetingDir, "synthesis"));
-  ensureDir(path.join(meetingDir, "workspaces"));
   ensureDir(path.join(meetingDir, "materials"));
   writeText(path.join(meetingDir, ".gitignore"), "*\n!.gitignore\n");
 
@@ -595,11 +644,11 @@ function createMeeting(options) {
   if (mappings.length > maxAgents) {
     throw new Error(`Too many agents: ${mappings.length}. Max allowed is ${maxAgents}.`);
   }
+  resetMeetingWorkspaces(meetingDir, process.cwd());
   for (const mapping of mappings) {
     agents[mapping.roleKey] = {
       provider: mapping.provider,
       role: ROLE_CARDS[mapping.roleKey].name,
-      workspacePath: agentWorkspaceRel(mapping.roleKey, mapping.provider),
       sessionId: null,
       status: "pending",
       rounds: []
@@ -618,6 +667,7 @@ function createMeeting(options) {
     providers: {
       codex: { enabled: true, sessionKind: "threadId" },
       claude: { enabled: true, sessionKind: "sessionId" },
+      qoderclicn: { enabled: true, sessionKind: "sessionId", registryDefault: false },
       gemini: { enabled: false, sessionKind: "sessionId", registryDefault: false },
       hermes: { enabled: false, sessionKind: "none", registryDefault: false },
       qoder: { enabled: false, sessionKind: "sessionId", registryDefault: false },

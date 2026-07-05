@@ -146,7 +146,7 @@ export function providerChildEnv(provider, extra = {}) {
 }
 
 function usesRealHome(provider) {
-  return provider === "codex" || provider === "claude";
+  return provider === "codex" || provider === "claude" || provider === "qoderclicn";
 }
 
 function providerAuthEnvKeys(provider) {
@@ -156,6 +156,8 @@ function providerAuthEnvKeys(provider) {
     case "claude":
       return ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"];
     case "qoder":
+      return ["QODER_TOKEN", "QODER_API_KEY"];
+    case "qoderclicn":
       return ["QODER_TOKEN", "QODER_API_KEY"];
     case "cursor":
       return ["CURSOR_API_KEY"];

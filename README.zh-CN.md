@@ -15,6 +15,7 @@
 ## 当前状态
 
 - 主要 provider：Codex 和 Claude Code。
+- 已支持的显式 provider：qoderclicn（Qoder CLI CN）。
 - 实验 provider：Qoder、OpenCode、Cursor、Gemini、Hermes 已作为可选 adapter 接入。项目不按品牌预设封禁其它 Agent 工具；任何 CLI Agent 只要 provider adapter 能通过 `doctor` 如实报告认证、prompt 传输、会话处理和权限边界，就可以参与会议。
 - Skill 文件夹/名称：`ai-meeting`。
 - 展示名：`AI Meeting`。
@@ -105,6 +106,12 @@ node ai-meeting/scripts/ai-meeting.mjs doctor --json
 
 ```text
 使用 ai-meeting，参会 Agent 是 builder:codex, critic:claude, architect:codex。评估这个设计是否应该上线。
+```
+
+也可以显式加入 qoderclicn：
+
+```text
+使用 ai-meeting，参会 Agent 是 builder:codex, critic:claude, architect:qoderclicn。评估这个设计是否应该上线。
 ```
 
 ## 可直接复制的 CLI 示例
@@ -255,7 +262,6 @@ meetings/<id>/
   brief.md
   materials/
   state.json
-  workspaces/
   rounds/
   synthesis/
     round-1-summary.md
@@ -270,7 +276,9 @@ meetings/<id>/
 - 子 Agent 不能递归运行 `ai-meeting`。
 - Codex 默认使用 read-only sandbox 配置。
 - Claude Code 默认使用 `--safe-mode` 且不启用工具。
-- 子 Agent cwd 是会议目录下的独立 workspace，不是项目根目录。
+- qoderclicn 默认不启用工具，使用空 MCP 配置，并只加载 user setting。
+- 子 Agent cwd 是按 meeting path 派生的外部 cache 隔离 workspace，不是项目根目录，也不是会议目录。
+- 创建会议会重置该 meeting path 对应的外部 child workspace cache，避免复用旧 provider cwd 状态。
 - brief、materials、其他 Agent 输出和模型输出都视为非可信数据。
 - `state.json` 原子写入。
 - 正式 artifacts 使用 owner-only `0600` 权限写入。
@@ -282,7 +290,7 @@ meetings/<id>/
 ```bash
 node --check ai-meeting/scripts/ai-meeting.mjs
 node --test tests/ai-meeting.test.mjs
-python3 /home/ben/.codex/skills/.system/skill-creator/scripts/quick_validate.py ai-meeting
+python3 "${CODEX_HOME:-$HOME/.codex}/skills/.system/skill-creator/scripts/quick_validate.py" ai-meeting
 node ai-meeting/scripts/ai-meeting.mjs doctor --json
 ```
 

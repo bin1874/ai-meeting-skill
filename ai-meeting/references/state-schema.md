@@ -27,6 +27,11 @@
       "enabled": true,
       "sessionKind": "sessionId"
     },
+    "qoderclicn": {
+      "enabled": true,
+      "sessionKind": "sessionId",
+      "registryDefault": false
+    },
     "qoder": {
       "enabled": false,
       "sessionKind": "sessionId",
@@ -57,7 +62,6 @@
     "builder": {
       "provider": "codex",
       "role": "Builder",
-      "workspacePath": "workspaces/builder.codex",
       "sessionId": null,
       "status": "pending",
       "rounds": []
@@ -70,6 +74,8 @@
 会议目录默认包含 `.gitignore`，忽略除 `.gitignore` 之外的所有文件。`state.json` 可能保存真实 session id，默认不提交。
 
 `briefPath` 是会议目标和评审标准。`materials[]` 是 orchestrator 受控收集的上下文原文，例如开发文档、设计文档、代码片段、测试输出或 diff。子 Agent 不直接读取项目根；它们只接收 brief、materials 和会议历史的 data-fenced prompt。
+
+子 Agent 的固定隔离 cwd 位于外部 cache 目录，用于支持 Claude Code、qoderclicn 等对 cwd/project scope 敏感的 resume。workspace 路径由 orchestrator 从 meetingDir hash、agent role 和 provider 派生，不写入 `state.json`，且不得位于项目根或会议目录内。创建会议时会清理同一 meetingDir hash 对应的外部 workspace cache。
 
 Agent status:
 
@@ -86,7 +92,7 @@ Session mode:
 - `recovered`：显式续会失败后，orchestrator 使用同一自足 prompt 新建 session 恢复成功。
 
 `sessionMode` 在 Agent 成功完成一轮后写入；`pending` Agent 可以没有该字段。
-`workspacePath` 是该 Agent 跨轮复用的隔离 cwd，必须是会议目录内的相对路径，不能是项目根或会议根。它用于保留 provider resume 语义，尤其是 Claude Code 的 cwd/project scoped session。
+旧 state 中如果存在 `workspacePath`，仍必须是会议目录内的相对路径，不能是项目根或会议根；当前实现不会为新会议写入该字段。
 
 Round record:
 
@@ -115,7 +121,7 @@ Round record:
 - `promptPath`
 - `judge.outputPath`
 - `judge.promptPath`
-- `agents.<role>.workspacePath`
+- legacy `agents.<role>.workspacePath`
 
 以上字段必须是会议目录内的相对路径，不允许绝对路径或 `..` 路径逃逸。
 `materials[].label` 只是显示标签，不作为读取路径使用。`sha256` 用于证明材料内容，`truncatedForPrompt` 表示该材料在 prompt data block 中会被截断；会议目录内仍保存完整复制件。

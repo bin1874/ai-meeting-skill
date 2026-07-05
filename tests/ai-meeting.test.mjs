@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -7,6 +8,7 @@ import test from "node:test";
 
 const ROOT = path.resolve(new URL("..", import.meta.url).pathname);
 const SCRIPT = path.join(ROOT, "ai-meeting", "scripts", "ai-meeting.mjs");
+const QODERCLICN_PROVIDER_URL = new URL("../ai-meeting/scripts/providers/qoderclicn.mjs", import.meta.url);
 const QODER_PROVIDER_URL = new URL("../ai-meeting/scripts/providers/qoder.mjs", import.meta.url);
 const OPENCODE_PROVIDER_URL = new URL("../ai-meeting/scripts/providers/opencode.mjs", import.meta.url);
 const CURSOR_PROVIDER_URL = new URL("../ai-meeting/scripts/providers/cursor.mjs", import.meta.url);
@@ -17,9 +19,39 @@ function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "ai-meeting-test-"));
 }
 
+function resolveForContainment(candidate) {
+  const resolved = path.resolve(candidate);
+  let existing = resolved;
+  const missing = [];
+  while (!fs.existsSync(existing)) {
+    const parent = path.dirname(existing);
+    if (parent === existing) return resolved;
+    missing.unshift(path.basename(existing));
+    existing = parent;
+  }
+  const real = fs.realpathSync.native(existing);
+  return path.resolve(real, ...missing);
+}
+
+function pathIsInside(baseDir, candidate) {
+  const relative = path.relative(resolveForContainment(baseDir), resolveForContainment(candidate));
+  return relative === "" || (relative && !relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+function externalWorkspaceDir(meetingDir, options = {}) {
+  const workspaceRoot = options.workspaceRoot ?? ROOT;
+  const homeDir = options.homeDir ?? os.homedir();
+  const homeCache = path.join(homeDir, ".cache", "ai-meeting", "workspaces");
+  const base = !pathIsInside(meetingDir, homeCache) && !pathIsInside(workspaceRoot, homeCache)
+    ? homeCache
+    : path.join(os.tmpdir(), "ai-meeting-workspaces");
+  const id = createHash("sha256").update(path.resolve(meetingDir)).digest("hex").slice(0, 24);
+  return path.join(base, id);
+}
+
 function run(args, options = {}) {
   return spawnSync(process.execPath, [SCRIPT, ...args], {
-    cwd: ROOT,
+    cwd: options.cwd ?? ROOT,
     env: {
       ...process.env,
       ...(options.env ?? {})
@@ -340,6 +372,22 @@ test("secret-like brief files and existing meetings are rejected", () => {
   assert.match(duplicate.stderr, /Meeting already exists/);
 });
 
+test("create resets external child workspace cache for the same meeting path", () => {
+  const dir = tmpDir();
+  const meeting = createMeeting(dir);
+  const staleFile = path.join(externalWorkspaceDir(meeting), "critic.qoderclicn", "stale.txt");
+  fs.mkdirSync(path.dirname(staleFile), { recursive: true });
+  fs.writeFileSync(staleFile, "old workspace", "utf8");
+
+  const invalid = run(["create", "--topic", "test topic", "--meeting-dir", meeting, "--agents", "critic:qoderclicn:extra", "--force"]);
+  assert.notEqual(invalid.status, 0);
+  assert.ok(fs.existsSync(staleFile));
+
+  const result = run(["create", "--topic", "test topic", "--meeting-dir", meeting, "--force"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(!fs.existsSync(staleFile));
+});
+
 test("sensitive-looking brief content requires explicit allow flag", () => {
   const dir = tmpDir();
   const brief = path.join(dir, "brief.md");
@@ -612,8 +660,11 @@ console.log(JSON.stringify({ type: "result", session_id: args[resumeIndex + 1], 
   assert.equal(round2.status, 0, round2.stderr);
 
   const state = JSON.parse(fs.readFileSync(path.join(meeting, "state.json"), "utf8"));
-  assert.equal(state.agents.critic.workspacePath, path.join("workspaces", "critic.claude"));
-  assert.equal(fs.readFileSync(cwdFile, "utf8"), path.join(meeting, "workspaces", "critic.claude"));
+  const workspace = fs.readFileSync(cwdFile, "utf8");
+  assert.equal(state.agents.critic.workspacePath, undefined);
+  assert.equal(fs.realpathSync(workspace), fs.realpathSync(path.join(externalWorkspaceDir(meeting), "critic.claude")));
+  assert.ok(!pathIsInside(meeting, workspace));
+  assert.ok(!pathIsInside(ROOT, workspace));
   assert.equal(fs.readFileSync(path.join(meeting, "rounds", "round-2", "critic.claude.md"), "utf8"), "round two\n");
 });
 
@@ -664,6 +715,208 @@ if (count === 1) {
   assert.match(state.agents.critic.rounds[1].recovery, /Resume failed/);
   assert.match(state.agents.critic.rounds[1].stderr, /No conversation found/);
   assert.equal(fs.readFileSync(path.join(meeting, "rounds", "round-2", "critic.claude.md"), "utf8"), "round two recovered\n");
+});
+
+test("qoderclicn provider uses stdin, disables tools and MCP, and returns completed output", async () => {
+  const dir = tmpDir();
+  const bin = path.join(dir, "bin");
+  fs.mkdirSync(bin);
+  writeExecutable(path.join(bin, "qoderclicn"), `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+const stdin = fs.readFileSync(0, "utf8");
+function fail(message) {
+  console.error(message);
+  process.exit(2);
+}
+if (!stdin.includes("本轮角色评审")) fail("prompt was not passed on stdin");
+if (process.env.AI_MEETING_SECRET_TEST) fail("unexpected secret env inherited");
+if (!args.includes("-p")) fail("missing print flag");
+if (args[args.indexOf("--output-format") + 1] !== "stream-json") fail("missing stream-json output");
+if (args[args.indexOf("--permission-mode") + 1] !== "default") fail("permission mode was not default");
+if (args[args.indexOf("--tools") + 1] !== "") fail("tools were not disabled");
+if (args[args.indexOf("--mcp-config") + 1] !== '{"mcpServers":{}}') fail("mcp config was not empty");
+if (!args.includes("--strict-mcp-config")) fail("strict mcp config missing");
+if (args[args.indexOf("--setting-sources") + 1] !== "user") fail("setting sources were not user-only");
+if (!args.includes("--session-id")) fail("new session id missing");
+const sessionId = args[args.indexOf("--session-id") + 1];
+console.log(JSON.stringify({ type: "system", subtype: "init", session_id: sessionId, tools: [] }));
+console.log(JSON.stringify({ type: "result", subtype: "success", is_error: false, result: "qoderclicn ok", session_id: sessionId }));
+`);
+
+  await withEnv({ PATH: `${bin}:${process.env.PATH}`, AI_MEETING_SECRET_TEST: "do-not-inherit" }, async () => {
+    const { qoderCliCnProvider } = await import(QODERCLICN_PROVIDER_URL);
+    const generatedSessionId = "00000000-0000-4000-8000-000000000211";
+    const result = await qoderCliCnProvider.startSession({ cwd: dir, prompt: "本轮角色评审", generatedSessionId, timeoutMs: 10_000 });
+    assert.equal(result.status, "completed", result.stderr);
+    assert.equal(result.rawOutput, "qoderclicn ok");
+    assert.equal(result.sessionId, generatedSessionId);
+  });
+});
+
+test("qoderclicn result output is parsed and resume uses the same external workspace", () => {
+  const dir = tmpDir();
+  const bin = path.join(dir, "bin");
+  const workspaceLog = path.join(dir, "qoderclicn-workspaces.log");
+  const argsLog = path.join(dir, "qoderclicn-args.log");
+  const stdinLog = path.join(dir, "qoderclicn-stdin.log");
+  fs.mkdirSync(bin);
+  writeExecutable(path.join(bin, "qoderclicn"), `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "qoderclicn 1.0.37"
+  exit 0
+fi
+if [ "$1" = "--help" ]; then
+  echo "--print --output-format --resume --session-id --cwd --permission-mode --tools --mcp-config --strict-mcp-config --setting-sources"
+  exit 0
+fi
+printf '%s\\n' "$PWD" >> "${workspaceLog}"
+printf '%s\\n' "$@" >> "${argsLog}"
+cat > "${stdinLog}"
+resumed=false
+session_id=""
+previous=""
+for arg in "$@"; do
+  if [ "$previous" = "--session-id" ] || [ "$previous" = "--resume" ]; then
+    session_id="$arg"
+  fi
+  if [ "$arg" = "--resume" ]; then
+    resumed=true
+  fi
+  previous="$arg"
+done
+if [ "$resumed" = true ]; then
+  result="QODERCLICN R2"
+else
+  result="QODERCLICN R1"
+fi
+printf '%s\\n' "{\\"type\\":\\"system\\",\\"session_id\\":\\"$session_id\\"}"
+printf '%s\\n' "{\\"type\\":\\"result\\",\\"is_error\\":false,\\"result\\":\\"$result\\",\\"session_id\\":\\"$session_id\\"}"
+`);
+
+  const brief = path.join(dir, "brief.md");
+  fs.writeFileSync(brief, "# Brief\n", "utf8");
+  const meeting = path.join(dir, "meeting");
+  const env = { PATH: `${bin}:${process.env.PATH}` };
+  const created = run(["create", "--topic", "test topic", "--brief-file", brief, "--meeting-dir", meeting, "--agents", "critic:qoderclicn"], { env });
+  assert.equal(created.status, 0, created.stderr);
+
+  const round1 = run(["round", "--meeting-dir", meeting, "--round", "1"], { env });
+  assert.equal(round1.status, 0, round1.stderr);
+  assert.equal(fs.readFileSync(path.join(meeting, "rounds", "round-1", "critic.qoderclicn.md"), "utf8"), "QODERCLICN R1\n");
+
+  const round2 = run(["round", "--meeting-dir", meeting, "--round", "2"], { env });
+  assert.equal(round2.status, 0, round2.stderr);
+  assert.equal(fs.readFileSync(path.join(meeting, "rounds", "round-2", "critic.qoderclicn.md"), "utf8"), "QODERCLICN R2\n");
+
+  const state = JSON.parse(fs.readFileSync(path.join(meeting, "state.json"), "utf8"));
+  assert.match(state.agents.critic.sessionId, /^[0-9a-f-]{36}$/);
+  assert.equal(state.agents.critic.sessionMode, "persistent");
+  assert.equal(state.agents.critic.workspacePath, undefined);
+
+  const workspaces = fs.readFileSync(workspaceLog, "utf8").trim().split(/\r?\n/);
+  assert.equal(workspaces.length, 2);
+  assert.equal(fs.realpathSync(workspaces[0]), fs.realpathSync(workspaces[1]));
+  assert.equal(fs.realpathSync(workspaces[0]), fs.realpathSync(path.join(externalWorkspaceDir(meeting), "critic.qoderclicn")));
+  assert.ok(!pathIsInside(meeting, workspaces[0]));
+  assert.ok(!pathIsInside(ROOT, workspaces[0]));
+
+  const args = fs.readFileSync(argsLog, "utf8").trim().split(/\r?\n/);
+  assert.ok(args.includes("--tools"));
+  assert.ok(args.includes(""));
+  assert.ok(args.includes("--mcp-config"));
+  assert.ok(args.includes('{"mcpServers":{}}'));
+  assert.ok(args.includes("--strict-mcp-config"));
+  assert.ok(args.includes("--permission-mode"));
+  assert.ok(args.includes("default"));
+  assert.ok(args.includes("--setting-sources"));
+  assert.ok(args.includes("user"));
+  assert.ok(args.includes("--session-id"));
+  assert.ok(args.includes("--resume"));
+  assert.ok(!args.some((arg) => arg.includes("本轮角色评审") || arg.includes("# Brief")));
+
+  const stdin = fs.readFileSync(stdinLog, "utf8");
+  assert.match(stdin, /本轮角色评审/);
+  assert.match(stdin, /# Brief/);
+});
+
+test("qoderclicn is_error result is treated as failed even with exit code zero", async () => {
+  const dir = tmpDir();
+  const bin = path.join(dir, "bin");
+  fs.mkdirSync(bin);
+  writeExecutable(path.join(bin, "qoderclicn"), `#!/usr/bin/env node
+console.log(JSON.stringify({ type: "result", is_error: true, result: "bad", session_id: "qoderclicn-session-error" }));
+`);
+
+  await withEnv({ PATH: `${bin}:${process.env.PATH}` }, async () => {
+    const { qoderCliCnProvider } = await import(QODERCLICN_PROVIDER_URL);
+    const result = await qoderCliCnProvider.startSession({ cwd: dir, prompt: "本轮角色评审", generatedSessionId: "00000000-0000-4000-8000-000000000212", timeoutMs: 10_000 });
+    assert.equal(result.status, "failed");
+    assert.equal(result.rawOutput, "bad");
+    assert.equal(result.sessionId, null);
+  });
+});
+
+test("qoderclicn completed event without final text is treated as failed", async () => {
+  const dir = tmpDir();
+  const bin = path.join(dir, "bin");
+  fs.mkdirSync(bin);
+  writeExecutable(path.join(bin, "qoderclicn"), `#!/usr/bin/env node
+console.log(JSON.stringify({ type: "system", session_id: "qoderclicn-session-empty" }));
+console.log(JSON.stringify({ type: "result", is_error: false, result: "", session_id: "qoderclicn-session-empty" }));
+`);
+
+  await withEnv({ PATH: `${bin}:${process.env.PATH}` }, async () => {
+    const { qoderCliCnProvider } = await import(QODERCLICN_PROVIDER_URL);
+    const result = await qoderCliCnProvider.startSession({ cwd: dir, prompt: "本轮角色评审", generatedSessionId: "00000000-0000-4000-8000-000000000213", timeoutMs: 10_000 });
+    assert.equal(result.status, "failed");
+    assert.equal(result.rawOutput, "");
+    assert.match(result.stderr, /no parseable model output/);
+  });
+});
+
+test("child workspace cache resolves symlinked home cache before containment checks", () => {
+  const dir = tmpDir();
+  const projectRoot = path.join(dir, "project");
+  const fakeHome = path.join(dir, "home");
+  const linkedCacheTarget = path.join(projectRoot, "cache-target");
+  const bin = path.join(dir, "bin");
+  const workspaceLog = path.join(dir, "qoderclicn-workspaces.log");
+  fs.mkdirSync(projectRoot, { recursive: true });
+  fs.mkdirSync(fakeHome, { recursive: true });
+  fs.mkdirSync(linkedCacheTarget, { recursive: true });
+  fs.mkdirSync(bin, { recursive: true });
+  fs.symlinkSync(linkedCacheTarget, path.join(fakeHome, ".cache"), "dir");
+  writeExecutable(path.join(bin, "qoderclicn"), `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  echo "qoderclicn 1.0.37"
+  exit 0
+fi
+if [ "$1" = "--help" ]; then
+  echo "--print --output-format --resume --session-id --cwd --permission-mode --tools --mcp-config --strict-mcp-config --setting-sources"
+  exit 0
+fi
+printf '%s\\n' "$PWD" >> "${workspaceLog}"
+cat >/dev/null
+printf '%s\\n' '{"type":"system","session_id":"qoderclicn-session-symlink"}'
+printf '%s\\n' '{"type":"result","is_error":false,"result":"QODERCLICN R1","session_id":"qoderclicn-session-symlink"}'
+`);
+
+  const brief = path.join(dir, "brief.md");
+  fs.writeFileSync(brief, "# Brief\n", "utf8");
+  const meeting = path.join(dir, "meeting");
+  const env = { HOME: fakeHome, PATH: `${bin}:${process.env.PATH}` };
+  const created = run(["create", "--topic", "test topic", "--brief-file", brief, "--meeting-dir", meeting, "--agents", "critic:qoderclicn"], { cwd: projectRoot, env });
+  assert.equal(created.status, 0, created.stderr);
+
+  const round = run(["round", "--meeting-dir", meeting, "--round", "1"], { cwd: projectRoot, env });
+  assert.equal(round.status, 0, round.stderr);
+
+  const workspace = fs.readFileSync(workspaceLog, "utf8").trim();
+  assert.equal(fs.realpathSync(workspace), fs.realpathSync(path.join(externalWorkspaceDir(meeting, { workspaceRoot: projectRoot, homeDir: fakeHome }), "critic.qoderclicn")));
+  assert.ok(!pathIsInside(projectRoot, workspace));
+  assert.ok(!pathIsInside(meeting, workspace));
+  assert.ok(!pathIsInside(linkedCacheTarget, workspace));
 });
 
 test("qoder provider uses stdin, disables tools, and returns completed output", async () => {
@@ -924,13 +1177,13 @@ test("opencode provider uses stdin, isolated cwd, readonly agent, and returns co
   writeExecutable(path.join(bin, "opencode"), `#!/usr/bin/env node
 const fs = require("node:fs");
 const args = process.argv.slice(2);
-const expectedCwd = ${JSON.stringify(dir)};
+const expectedCwd = fs.realpathSync(${JSON.stringify(dir)});
 function fail(message) {
   console.error(message);
   process.exit(2);
 }
 if (args[0] !== "run") fail("missing run command");
-if (process.cwd() !== expectedCwd) fail("cwd was not isolated");
+if (fs.realpathSync(process.cwd()) !== expectedCwd) fail("cwd was not isolated");
 if (args[args.indexOf("--format") + 1] !== "json") fail("missing json format");
 if (args[args.indexOf("--agent") + 1] !== "ai-meeting-readonly") fail("missing readonly agent");
 if (!args.includes("--title")) fail("missing title for new session");
@@ -1167,6 +1420,7 @@ test("cursor provider uses stdin, ask mode, sandbox, workspace, and returns comp
 const fs = require("node:fs");
 const args = process.argv.slice(2);
 const expectedCwd = ${JSON.stringify(dir)};
+const expectedRealCwd = fs.realpathSync(expectedCwd);
 function fail(message) {
   console.error(message);
   process.exit(2);
@@ -1176,7 +1430,7 @@ if (args[args.indexOf("--output-format") + 1] !== "stream-json") fail("missing s
 if (args[args.indexOf("--mode") + 1] !== "ask") fail("missing ask mode");
 if (args[args.indexOf("--sandbox") + 1] !== "enabled") fail("missing sandbox enabled");
 if (args[args.indexOf("--workspace") + 1] !== expectedCwd) fail("workspace was not isolated");
-if (process.cwd() !== expectedCwd) fail("cwd was not isolated");
+if (fs.realpathSync(process.cwd()) !== expectedRealCwd) fail("cwd was not isolated");
 if (args.includes("--force") || args.includes("--yolo") || args.includes("--trust") || args.includes("--approve-mcps")) fail("unsafe flag present");
 const stdin = fs.readFileSync(0, "utf8");
 if (!stdin.includes("本轮角色评审")) fail("prompt was not passed on stdin");
